@@ -665,7 +665,8 @@ window.startCall = async function () {
     });
     if (!proxyRes.ok) throw new Error('proxy ' + proxyRes.status);
     const proxyData = await proxyRes.json();
-    if (!proxyData.audio) throw new Error('no audio in response');
+    const startAudio = proxyData.audio_base64 || proxyData.audio;
+    if (!startAudio) throw new Error('no audio in response');
 
     // Log the intro as Promathia turn 0
     convHistory.push({ role: 'assistant', content: activeScenario.intro });
@@ -677,19 +678,15 @@ window.startCall = async function () {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        mode: 'chat_speak',
-        message: '[SESSION START — intro delivered]',
-        system: activeSystem,
-        history: [],
+        mode: 'log_only',
+        transcript: '[SESSION START — intro delivered]',
         session_id: SESSION_ID,
-        scenario: activeScenario.label || 'cold',
-        recipient_name: activeScenario.recipientName || 'unknown',
-        turn_index: 0,
-        _log_only: true
+        subject_name: activeScenario.recipientName || 'unknown',
+        turn_index: 0
       })
     }).catch(() => {});
 
-    const rawBytes = Uint8Array.from(atob(audioData), c => c.charCodeAt(0));
+    const rawBytes = Uint8Array.from(atob(startAudio), c => c.charCodeAt(0));
     const ctx = getCtx();
     const decoded = await ctx.decodeAudioData(rawBytes.buffer);
     btn.classList.remove('active'); btn.textContent = 'START CALL';
