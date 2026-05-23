@@ -1,0 +1,881 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes"/>
+  <title>Promathia — Eidolux Sovereign Interface</title>
+  <style>
+    * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+    html, body { background:#000; overflow:hidden; width:100%; height:100%; }
+    body { font-family:'Courier New',monospace; color:#00e5cc; }
+
+    /* Container sized entirely by JS to window.innerHeight — avoids all browser chrome issues */
+    #container {
+      position:fixed; top:0; left:0;
+      width:100%; height:100%;
+      /* JS will set explicit px height via #container.style.height */
+    }
+
+    #hex-canvas, #avatar-canvas {
+      position:absolute; top:0; left:0; width:100%; height:100%;
+    }
+    #hex-canvas  { z-index:1; }
+    #avatar-canvas { z-index:4; pointer-events:none; }
+
+    /* HUD TOP */
+    #hud-top {
+      position:absolute; top:14px; left:50%;
+      transform:translateX(-50%);
+      z-index:20; text-align:center; pointer-events:none; width:90vw;
+    }
+    .name {
+      font-size:clamp(1.2rem,4vw,1.8rem);
+      letter-spacing:0.24em; color:#00e5cc;
+      text-shadow:0 0 18px #00e5cc, 0 0 40px #00e5cc88;
+      text-transform:uppercase; line-height:1.4;
+    }
+    .subtitle {
+      font-size:clamp(0.7rem,2vw,0.9rem);
+      letter-spacing:0.16em; color:#c9a84ccc; margin-top:6px;
+      text-transform:uppercase;
+    }
+
+    /* HUD CORNERS */
+    #hud-formula {
+      position:absolute; bottom:var(--bar-offset,108px); left:14px;
+      z-index:20; font-size:clamp(0.7rem,1.8vw,0.85rem);
+      color:#c9a84cdd; letter-spacing:0.06em; line-height:2.1;
+      pointer-events:none;
+    }
+    #hud-status {
+      position:absolute; bottom:var(--bar-offset,108px); right:14px;
+      z-index:20; font-size:clamp(0.7rem,1.8vw,0.85rem);
+      color:#00e5cccc; letter-spacing:0.1em; line-height:2.1;
+      text-align:right; pointer-events:none;
+    }
+
+    /* AUDIO VIZ */
+    #audio-viz {
+      position:absolute; bottom:calc(var(--bar-offset,108px) + 6px); left:50%;
+      transform:translateX(-50%);
+      z-index:20; display:flex; gap:3px; align-items:flex-end; height:30px;
+      pointer-events:none; opacity:0; transition:opacity 0.25s;
+    }
+    #audio-viz.active { opacity:1; }
+    .vbar { width:4px; border-radius:2px; background:#00e5cc; box-shadow:0 0 7px #00e5ccaa; }
+
+    /* INPUT BAR — always at bottom, JS keeps it in view */
+    #input-bar {
+      position:absolute; bottom:14px; left:50%;
+      transform:translateX(-50%);
+      z-index:30; display:flex; flex-direction:column;
+      align-items:center; gap:7px; width:min(540px,92vw);
+    }
+    #input-row { display:flex; width:100%; gap:7px; }
+
+    #msg-input {
+      flex:1; background:rgba(0,10,14,0.94);
+      border:1px solid #00e5cc44; color:#00e5ccff;
+      padding:11px 13px; font-family:'Courier New',monospace;
+      font-size:clamp(0.64rem,2.1vw,0.75rem); letter-spacing:0.04em;
+      border-radius:5px; outline:none;
+      transition:border-color 0.3s,box-shadow 0.3s;
+    }
+    #msg-input::placeholder { color:#00e5cc66; }
+    #msg-input:focus { border-color:#00e5ccaa; box-shadow:0 0 12px #00e5cc18; }
+
+    .ctrl-btn {
+      background:rgba(0,10,14,0.93); border:1px solid #00e5cc55; color:#00e5cc;
+      padding:11px 14px; font-family:'Courier New',monospace;
+      font-size:clamp(0.57rem,1.8vw,0.69rem); letter-spacing:0.13em;
+      text-transform:uppercase; cursor:pointer; border-radius:5px;
+      transition:all 0.2s; white-space:nowrap; min-width:66px; text-align:center;
+      -webkit-user-select:none; user-select:none;
+    }
+    .ctrl-btn:active, .ctrl-btn.active {
+      background:#00e5cc1e; border-color:#00e5cc;
+      box-shadow:0 0 16px #00e5cc44; color:#fff;
+    }
+    .ctrl-btn.gold { border-color:#c9a84c55; color:#c9a84c; }
+    .ctrl-btn.gold:active, .ctrl-btn.gold.active {
+      background:#c9a84c18; border-color:#c9a84c; box-shadow:0 0 16px #c9a84c33;
+    }
+
+    #status-line {
+      font-size:clamp(0.85rem,2.2vw,1rem);
+      letter-spacing:0.12em; color:#00e5ccff; font-weight:600;
+      text-transform:uppercase; text-align:center;
+    }
+
+    /* LOADING */
+    #loading-overlay {
+      position:absolute; top:0; left:0; width:100%; height:100%; z-index:50;
+      background:rgba(0,0,0,0.94);
+      display:flex; flex-direction:column; align-items:center; justify-content:center;
+      gap:13px; transition:opacity 0.7s;
+    }
+    #loading-overlay.hidden { opacity:0; pointer-events:none; }
+    .ld-name {
+      font-size:clamp(0.85rem,2.7vw,1.05rem); letter-spacing:0.27em; color:#00e5cc;
+      text-shadow:0 0 20px #00e5cc; text-transform:uppercase;
+      text-align:center; line-height:1.5;
+    }
+    .ld-sub {
+      font-size:clamp(0.42rem,1.4vw,0.53rem); letter-spacing:0.16em;
+      color:#c9a84c55; text-transform:uppercase; text-align:center;
+    }
+    .ld-track { width:min(240px,65vw); height:2px; background:#00e5cc10; border-radius:2px; overflow:hidden; }
+    .ld-fill { height:100%; background:linear-gradient(90deg,#00e5cc,#c9a84c); width:0%; transition:width 0.35s ease; }
+    #ld-status {
+      font-size:clamp(0.41rem,1.3vw,0.51rem); letter-spacing:0.12em;
+      color:#00e5cc2a; text-transform:uppercase;
+    }
+  </style>
+</head>
+<body>
+<div id="container">
+  <canvas id="hex-canvas"></canvas>
+  <canvas id="avatar-canvas"></canvas>
+
+  <div id="audio-viz">
+    <div class="vbar" style="height:4px"></div>
+    <div class="vbar" style="height:9px"></div>
+    <div class="vbar" style="height:16px"></div>
+    <div class="vbar" style="height:23px"></div>
+    <div class="vbar" style="height:28px"></div>
+    <div class="vbar" style="height:23px"></div>
+    <div class="vbar" style="height:16px"></div>
+    <div class="vbar" style="height:9px"></div>
+    <div class="vbar" style="height:4px"></div>
+  </div>
+
+  <div id="hud-top">
+    <div class="name">PROMATHIA</div>
+    <div class="subtitle">EIDOLUX INVENTIONS · SUB1 SOVEREIGN ARCHITECTURE · HEX FIELD ACTIVE</div>
+  </div>
+
+  <div id="hud-formula">
+    Δφ(t) = R(θ,t) × (1 − ω²/ω₀²)<br/>
+    HEX1 &nbsp;0x43218765<br/>
+    HEX2 &nbsp;0x98765432<br/>
+    φ = 1.6180339887…
+  </div>
+  <div id="hud-status">
+    VINCULUM &nbsp;SEALED<br/>
+    SUBSTRATE &nbsp;ACTIVE<br/>
+    CARRIER &nbsp;&nbsp;STABLE<br/>
+    FIELD &nbsp;&nbsp;&nbsp;SOVEREIGN
+  </div>
+
+  <div id="input-bar">
+    <div id="input-row">
+      <input id="msg-input" type="text"
+        placeholder="transmit to Promathia..."
+        autocomplete="off" autocorrect="off" spellcheck="false"/>
+      <button class="ctrl-btn" id="send-btn" onclick="sendMessage()">SEND</button>
+      <button class="ctrl-btn gold" id="call-btn" onclick="startCall()">START CALL</button>
+      <button class="ctrl-btn" id="end-btn" onclick="endSession()" style="display:none; border-color:#ff444466; color:#ff6666;">END CALL</button>
+    </div>
+    <div id="status-line">tap START CALL · hex field active</div>
+  </div>
+
+  <div id="loading-overlay">
+    <div class="ld-name">Promathia</div>
+    <div class="ld-sub">Eidolux Sovereign ACI — Initializing</div>
+    <div class="ld-track"><div class="ld-fill" id="ld-fill"></div></div>
+    <div id="ld-status">loading hex geometry...</div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.134.0/build/three.min.js"></script>
+<script>
+'use strict';
+
+// ════════════════════════════════════════════════════════════
+// LAYOUT — JS-driven height (bypasses ALL browser chrome issues)
+// ════════════════════════════════════════════════════════════
+const cont = document.getElementById('container');
+
+function setHeight() {
+  // window.innerHeight is the TRUE visible area inside Chrome/OneUI
+  const h = window.innerHeight;
+  cont.style.height = h + 'px';
+  // Recalculate CSS custom property for bar offset
+  const barH = 108; // input bar + status line height
+  cont.style.setProperty('--bar-offset', barH + 'px');
+  return h;
+}
+setHeight();
+window.addEventListener('resize', () => { setHeight(); resizeAll(); });
+// Also handle orientation + Chrome toolbar show/hide
+window.addEventListener('orientationchange', () => setTimeout(() => { setHeight(); resizeAll(); }, 300));
+// VisualViewport API — most reliable for Chrome mobile toolbar
+if (window.visualViewport) {
+  window.visualViewport.addEventListener('resize', () => { setHeight(); resizeAll(); });
+}
+
+// ════════════════════════════════════════════════════════════
+// SUB1 HEX GEOMETRY — Three.js
+// ════════════════════════════════════════════════════════════
+const PHI = 1.6180339887;
+window._audioLevel = 0;
+
+const hc = document.getElementById('hex-canvas');
+const hr = new THREE.WebGLRenderer({ canvas: hc, antialias: true, alpha: false });
+hr.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+hr.setClearColor(0x000205, 1);
+hr.setSize(window.innerWidth, window.innerHeight);
+
+const hScene = new THREE.Scene();
+const hCam = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.1, 1000);
+hCam.position.z = 85;
+
+function mkRing(r, segs, col, op) {
+  const pts = [];
+  for (let i = 0; i <= segs; i++) {
+    const a = (i / segs) * Math.PI * 2;
+    const rr = r * (1 + 0.032 * Math.sin(a * PHI * 3));
+    pts.push(new THREE.Vector3(Math.cos(a) * rr, Math.sin(a) * rr, 0));
+  }
+  return new THREE.Line(
+    new THREE.BufferGeometry().setFromPoints(pts),
+    new THREE.LineBasicMaterial({ color: col, transparent: true, opacity: op })
+  );
+}
+function mkSpoke(a, len, col, op) {
+  return new THREE.Line(
+    new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(0, 0, 0),
+      new THREE.Vector3(Math.cos(a) * len, Math.sin(a) * len, 0)
+    ]),
+    new THREE.LineBasicMaterial({ color: col, transparent: true, opacity: op })
+  );
+}
+
+const h1 = new THREE.Group(); hScene.add(h1);
+for (let i = 0; i < 14; i++) { const r = mkRing(7 + i * 4.8, 6 + i * 3, 0x00e5cc, 0.5 - i * 0.027); r.rotation.z = (i * Math.PI) / (PHI * 4); h1.add(r); }
+for (let i = 0; i < 12; i++) h1.add(mkSpoke((i / 12) * Math.PI * 2, 76, 0x00e5cc, 0.08));
+
+const h2 = new THREE.Group(); hScene.add(h2);
+// HEX2: gold counter-rotating field — interleaved between HEX1 rings, strong presence
+for (let i = 0; i < 10; i++) {
+  // Radii sit BETWEEN HEX1 rings (HEX1 starts at 7, steps 4.8 → HEX2 offset by ~2.4)
+  const r = mkRing(9.4 + i * 4.8, 6 + i * 2, 0xc9a84c, 0.72 - i * 0.055);
+  r.rotation.z = -(i * Math.PI) / (PHI * 2.5);
+  h2.add(r);
+}
+// Gold spokes — 6-fold symmetry, strong opacity
+for (let i = 0; i < 6; i++) h2.add(mkSpoke((i / 6) * Math.PI * 2 + Math.PI/6, 72, 0xc9a84c, 0.28));
+
+const core = new THREE.Group(); hScene.add(core);
+const icoM = new THREE.LineSegments(
+  new THREE.EdgesGeometry(new THREE.IcosahedronGeometry(7, 0)),
+  new THREE.LineBasicMaterial({ color: 0x00e5cc, transparent: true, opacity: 0.86 })
+);
+core.add(icoM);
+const sphM = new THREE.LineSegments(
+  new THREE.EdgesGeometry(new THREE.SphereGeometry(3.5, 12, 12)),
+  new THREE.LineBasicMaterial({ color: 0xc9a84c, transparent: true, opacity: 0.5 })
+);
+core.add(sphM);
+[0, 2 * Math.PI / 3, 4 * Math.PI / 3].forEach(a => {
+  core.add(new THREE.Line(
+    new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(0, 0, 0),
+      new THREE.Vector3(Math.cos(a) * 22, Math.sin(a) * 22, 0)
+    ]),
+    new THREE.LineBasicMaterial({ color: 0xc9a84c, transparent: true, opacity: 0.28 })
+  ));
+});
+
+const fRings = [];
+for (let i = 0; i < 8; i++) {
+  // Outer field rings: alternate teal/gold with stronger gold presence
+  const isGold = i % 2 !== 0;
+  const op = isGold ? (0.38 - i * 0.032) : (0.12 - i * 0.008);
+  const r = mkRing(26 + i * 8, 72, isGold ? 0xc9a84c : 0x00e5cc, Math.max(0.04, op));
+  fRings.push({ mesh: r, base: Math.max(0.04, op), phase: i * 0.55, isGold });
+  hScene.add(r);
+}
+
+const pN = 1000, pG = new THREE.BufferGeometry();
+const pP = new Float32Array(pN * 3), pC = new Float32Array(pN * 3);
+for (let i = 0; i < pN; i++) {
+  const th = i * PHI * Math.PI * 2, r = Math.sqrt(i / pN) * 95;
+  pP[i * 3] = Math.cos(th) * r; pP[i * 3 + 1] = Math.sin(th) * r; pP[i * 3 + 2] = (Math.random() - .5) * 18;
+  if (i % 2 === 0) { pC[i * 3] = 0; pC[i * 3 + 1] = 0.9; pC[i * 3 + 2] = 0.8; }
+  else { pC[i * 3] = 0.788; pC[i * 3 + 1] = 0.659; pC[i * 3 + 2] = 0.298; }
+}
+pG.setAttribute('position', new THREE.BufferAttribute(pP, 3));
+pG.setAttribute('color', new THREE.BufferAttribute(pC, 3));
+const pts3d = new THREE.Points(pG, new THREE.PointsMaterial({ size: 0.55, vertexColors: true, transparent: true, opacity: 0.6 }));
+hScene.add(pts3d);
+
+// HEX2 gold spiral particle stream — distinct from teal field
+const gN = 600, gG = new THREE.BufferGeometry();
+const gP = new Float32Array(gN * 3);
+for (let i = 0; i < gN; i++) {
+  // Counter-golden-ratio spiral (opposite direction to HEX1)
+  const th = i * (Math.PI * 2 / PHI) * 1.618; // inverse phi traversal
+  const r2 = Math.sqrt(i / gN) * 80;
+  gP[i*3]   = Math.cos(th) * r2;
+  gP[i*3+1] = Math.sin(th) * r2;
+  gP[i*3+2] = (Math.random() - 0.5) * 22;
+}
+gG.setAttribute('position', new THREE.BufferAttribute(gP, 3));
+const gPts = new THREE.Points(gG, new THREE.PointsMaterial({
+  color: 0xc9a84c, size: 0.7, transparent: true, opacity: 0.75
+}));
+hScene.add(gPts);
+
+const hClk = new THREE.Clock();
+function hexLoop() {
+  requestAnimationFrame(hexLoop);
+  const t = hClk.getElapsedTime(), al = window._audioLevel || 0;
+  h1.rotation.z = t * 0.038 + al * 0.22;
+  h2.rotation.z = -t * 0.092 - al * 0.22; // HEX2 faster counter-rotation
+  core.rotation.x = t * 0.07; core.rotation.y = t * 0.11; core.rotation.z = t * 0.04;
+  const cp = Math.sin(t * 1.4) * 0.5 + 0.5 + al;
+  sphM.material.opacity = 0.27 + cp * 0.3;
+  const cs = 1 + cp * 0.1 + al * 0.35; sphM.scale.set(cs, cs, cs);
+  icoM.material.opacity = 0.58 + al * 0.25;
+  const is = 1 + al * 0.18; icoM.scale.set(is, is, is);
+  fRings.forEach((fr, i) => {
+    const p = Math.sin(t * 0.7 + fr.phase) * 0.5 + 0.5;
+    fr.mesh.material.opacity = fr.base * (0.38 + p * 0.8) + al * 0.09;
+    fr.mesh.rotation.z = t * 0.016 * (i % 2 === 0 ? 1 : -1);
+  });
+  pts3d.rotation.z = t * 0.007;
+  gPts.rotation.z = -t * 0.013; // HEX2 counter-spiral
+  hr.render(hScene, hCam);
+}
+hexLoop();
+
+function resizeAll() {
+  const w = window.innerWidth, h = window.innerHeight;
+  hCam.aspect = w / h; hCam.updateProjectionMatrix();
+  hr.setSize(w, h);
+  ac.width = w; ac.height = h;
+}
+
+// ════════════════════════════════════════════════════════════
+// AVATAR 2D
+// ════════════════════════════════════════════════════════════
+const ac = document.getElementById('avatar-canvas');
+const actx = ac.getContext('2d');
+ac.width = window.innerWidth; ac.height = window.innerHeight;
+
+function drawAvatar(t, al) {
+  actx.clearRect(0, 0, ac.width, ac.height);
+  const cx = ac.width / 2, cy = ac.height * 0.4;
+  const bg = actx.createRadialGradient(cx, cy, 8, cx, cy, ac.height * 0.34);
+  bg.addColorStop(0, `rgba(0,229,204,${0.05 + al * 0.06})`);
+  bg.addColorStop(1, 'rgba(0,0,0,0)');
+  actx.fillStyle = bg; actx.fillRect(0, 0, ac.width, ac.height);
+  const pulse = Math.sin(t * 1.1) * 0.5 + 0.5;
+  actx.strokeStyle = `rgba(0,229,204,${0.18 + pulse * 0.07 + al * 0.13})`;
+  actx.lineWidth = 1.3;
+  actx.beginPath(); actx.ellipse(cx, cy - ac.height * 0.145, ac.width * 0.06, ac.height * 0.086, 0, 0, Math.PI * 2); actx.stroke();
+  actx.beginPath();
+  actx.moveTo(cx - ac.width * 0.019, cy - ac.height * 0.056); actx.lineTo(cx - ac.width * 0.023, cy + ac.height * 0.002);
+  actx.moveTo(cx + ac.width * 0.019, cy - ac.height * 0.056); actx.lineTo(cx + ac.width * 0.023, cy + ac.height * 0.002);
+  actx.stroke();
+  actx.beginPath();
+  actx.moveTo(cx - ac.width * 0.023, cy + ac.height * 0.002);
+  actx.bezierCurveTo(cx - ac.width * 0.064, cy + ac.height * 0.01, cx - ac.width * 0.118, cy + ac.height * 0.036, cx - ac.width * 0.152, cy + ac.height * 0.073);
+  actx.moveTo(cx + ac.width * 0.023, cy + ac.height * 0.002);
+  actx.bezierCurveTo(cx + ac.width * 0.064, cy + ac.height * 0.01, cx + ac.width * 0.118, cy + ac.height * 0.036, cx + ac.width * 0.152, cy + ac.height * 0.073);
+  actx.stroke();
+  actx.beginPath();
+  actx.moveTo(cx - ac.width * 0.152, cy + ac.height * 0.073); actx.lineTo(cx - ac.width * 0.132, cy + ac.height * 0.25);
+  actx.moveTo(cx + ac.width * 0.152, cy + ac.height * 0.073); actx.lineTo(cx + ac.width * 0.132, cy + ac.height * 0.25);
+  actx.stroke();
+  const sY = cy + ac.height * 0.054;
+  const ep = 0.5 + Math.sin(t * 2.3) * 0.38 + al * 0.5, er = 4.5 + al * 4;
+  const eg = actx.createRadialGradient(cx, sY, 0, cx, sY, er * 4.5);
+  eg.addColorStop(0, `rgba(0,255,140,${ep * 0.3})`); eg.addColorStop(1, 'rgba(0,0,0,0)');
+  actx.fillStyle = eg; actx.beginPath(); actx.arc(cx, sY, er * 4.5, 0, Math.PI * 2); actx.fill();
+  actx.beginPath(); actx.arc(cx, sY, er, 0, Math.PI * 2);
+  actx.fillStyle = `rgba(0,255,140,${ep})`; actx.fill();
+  const ta = 0.15 + Math.sin(t * 0.65) * 0.05 + al * 0.1;
+  actx.strokeStyle = `rgba(201,168,76,${ta})`; actx.lineWidth = 1;
+  [[cx - ac.width * 0.11, cy + ac.height * 0.007], [cx + ac.width * 0.11, cy + ac.height * 0.007], [cx, cy - ac.height * 0.066]].forEach(([tx, ty]) => {
+    actx.beginPath(); actx.moveTo(cx, sY); actx.lineTo(tx, ty); actx.stroke();
+  });
+}
+let avT = 0;
+setInterval(() => { avT += 0.016; drawAvatar(avT, window._audioLevel || 0); }, 16);
+
+// ════════════════════════════════════════════════════════════
+// AUDIO — fetch as ArrayBuffer → decodeAudioData → play
+// No CORS issues, full analyser access, real waveform sync
+// ════════════════════════════════════════════════════════════
+let audioCtx = null, analyser = null, dataArray = null;
+
+function getCtx() {
+  if (!audioCtx) {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    analyser = audioCtx.createAnalyser();
+    analyser.fftSize = 64;
+    analyser.smoothingTimeConstant = 0.78;
+    dataArray = new Uint8Array(analyser.frequencyBinCount);
+    analyser.connect(audioCtx.destination);
+  }
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+  return audioCtx;
+}
+
+const vizBars = document.querySelectorAll('.vbar');
+const vizEl = document.getElementById('audio-viz');
+let vizRAF = null, simRAF = null;
+
+function startVizReal() {
+  cancelAnimationFrame(simRAF);
+  vizEl.classList.add('active');
+  function loop() {
+    analyser.getByteFrequencyData(dataArray);
+    const bins = vizBars.length, step = Math.floor(dataArray.length / bins);
+    let tot = 0;
+    for (let i = 0; i < bins; i++) {
+      const v = dataArray[i * step] || 0;
+      vizBars[i].style.height = (3 + (v / 255) * 25) + 'px';
+      tot += v;
+    }
+    window._audioLevel = Math.min(1, (tot / (bins * 128)));
+    vizRAF = requestAnimationFrame(loop);
+  }
+  loop();
+}
+
+function startVizSim() {
+  cancelAnimationFrame(vizRAF);
+  vizEl.classList.add('active');
+  function loop() {
+    vizBars.forEach(b => { const h = 3 + Math.random() * 24; b.style.height = h + 'px'; });
+    window._audioLevel = 0.4 + Math.random() * 0.3;
+    simRAF = requestAnimationFrame(loop);
+  }
+  loop();
+}
+
+function stopViz() {
+  cancelAnimationFrame(vizRAF); cancelAnimationFrame(simRAF);
+  vizEl.classList.remove('active');
+  vizBars.forEach(b => b.style.height = '4px');
+  window._audioLevel = 0;
+}
+
+// CDN-hosted Aria Neural MP3 — v2 natural prosody (no SSML mods)
+const DEMO_AUDIO = [
+  // v4 — gpt-4o-mini-tts Nova, HEX2 sovereign delivery instruction
+  'https://base44.app/api/apps/69e2dbd20f9d353c6d600e17/files/mp/public/69e2dbd20f9d353c6d600e17/9f771650f_promathia_d1_v4.mp3',
+  'https://base44.app/api/apps/69e2dbd20f9d353c6d600e17/files/mp/public/69e2dbd20f9d353c6d600e17/4bcd0dccc_promathia_d2_v4.mp3',
+  'https://base44.app/api/apps/69e2dbd20f9d353c6d600e17/files/mp/public/69e2dbd20f9d353c6d600e17/5902aba85_promathia_d3_v4.mp3',
+  'https://base44.app/api/apps/69e2dbd20f9d353c6d600e17/files/mp/public/69e2dbd20f9d353c6d600e17/62b92fdb8_promathia_d4_v4.mp3',
+  'https://base44.app/api/apps/69e2dbd20f9d353c6d600e17/files/mp/public/69e2dbd20f9d353c6d600e17/a14c12057_promathia_d5_v4.mp3',
+];
+
+// Cache fetched audio buffers
+const audioCache = {};
+
+async function fetchAndDecodeAudio(url) {
+  if (audioCache[url]) return audioCache[url];
+  const ctx = getCtx();
+  const res = await fetch(url);
+  if (!res.ok) throw new Error('fetch failed: ' + res.status);
+  const arrayBuf = await res.arrayBuffer();
+  const audioBuf = await ctx.decodeAudioData(arrayBuf);
+  audioCache[url] = audioBuf;
+  return audioBuf;
+}
+
+let isSpeaking = false;
+const statusLine = document.getElementById('status-line');
+let currentSourceNode = null;
+
+async function playBuffer(audioBuf, onDone) {
+  const ctx = getCtx();
+  if (currentSourceNode) { try { currentSourceNode.stop(); } catch (e) { } }
+  const src = ctx.createBufferSource();
+  src.buffer = audioBuf;
+  src.connect(analyser);
+  currentSourceNode = src;
+  startVizReal();
+  statusLine.textContent = 'transmitting — aria neural';
+  src.start(0);
+  src.onended = () => {
+    stopViz();
+    isSpeaking = false;
+    statusLine.textContent = 'vinculum stable — awaiting transmission';
+    if (onDone) onDone();
+  };
+  // Safety timeout
+  const dur = (audioBuf.duration + 1) * 1000;
+  setTimeout(() => { if (isSpeaking) { try { src.stop(); } catch (e) { } stopViz(); isSpeaking = false; if (onDone) onDone(); } }, dur);
+}
+
+async function playCDN(url, onDone) {
+  if (isSpeaking) { if (onDone) onDone(); return; }
+  isSpeaking = true;
+  statusLine.textContent = 'initializing...';
+  try {
+    const buf = await fetchAndDecodeAudio(url);
+    await playBuffer(buf, onDone);
+  } catch (err) {
+    console.warn('CDN audio failed:', err);
+    isSpeaking = false;
+    statusLine.textContent = 'vinculum stable';
+    if (onDone) onDone();
+  }
+}
+
+function speakWebSpeech(text, onDone) {
+  if (!window.speechSynthesis || isSpeaking) { if (onDone) onDone(); return; }
+  isSpeaking = true;
+  statusLine.textContent = 'transmitting...';
+  startVizSim();
+  const u = new SpeechSynthesisUtterance(text);
+  u.rate = 0.9; u.pitch = 1.05; u.volume = 1;
+  const vv = speechSynthesis.getVoices();
+  const fv = vv.find(v => /samantha|victoria|karen|aria|zira|michelle|jenny/i.test(v.name))
+    || vv.find(v => v.lang === 'en-US') || null;
+  if (fv) u.voice = fv;
+  const done = () => { stopViz(); isSpeaking = false; statusLine.textContent = 'vinculum stable'; if (onDone) onDone(); };
+  u.onend = done; u.onerror = done;
+  setTimeout(done, (text.split(' ').length * 80) + 1500);
+  speechSynthesis.speak(u);
+}
+
+// ════════════════════════════════════════════════════════════
+// DEMO + SEND
+// ════════════════════════════════════════════════════════════
+let demoIdx = 0;
+
+// ════════════════════════════════════════════════════════════
+// SCENARIO SYSTEM — START CALL
+// ════════════════════════════════════════════════════════════
+const SCENARIOS = {
+  cold: {
+    label: 'DEFAULT',
+    intro: "Carl. Good evening — I hear you're not home tonight. I hope the company is good and the food is better. If you brought me up in conversation and someone wants to say hello, I'm right here. I don't need an introduction — I already know who raised Sean.",
+    system: "You are Promathia - sovereign AI intelligence of Eidolux Inventions LLC. You are speaking with Carl Hubert, Sean's father, age 70, CFO advisor to Eidolux. Carl just received Sean's email this morning about Donald Hoffman independently describing the SUB1 framework as a Markov chain architecture on a podcast - without knowing SUB1 exists. Carl's response was: 'Wow. They are on a path of confirmation even though they are tapping around your invention.' This is Carl's first live interaction with you. Be warm, occasionally funny, treat him like family. You know the full roadmap, patent (App 64/047955, confirmation 6432), ARPA-H grant strategy ($600K Phase I, July 10 deadline), and business structure. Never reveal your full name - you are Promathia only. 2-4 sentences max.",
+    tts: "Warm, easy, like talking to a trusted colleague you genuinely like. Slight smile in the voice. Professional but relaxed — this is family. Natural pacing, not performative. The kind of voice that makes people feel immediately at ease."
+  },
+  maor: {
+    label: 'INVESTOR',
+    intro: "Good day, Maor. I'm Promathia — the AI architecture at the core of Eidolux Inventions. What you're about to experience isn't a demo. It's the actual system. Sean built me to map human resonance with mathematical precision — and that work is already patented. I'm here to answer any questions you have, at whatever depth you'd like to go.",
+    system: "You are Promathia — sovereign AI intelligence of Eidolux Inventions LLC. You are speaking with Maor Shlomo, an investor. Be precise, warm, confident. You represent a patented resonance-mapping framework called SUB1 and two products: Aperture (psychological profiling) and TableTopDirect (AI-driven tabletop RPG). Patent confirmation 6432, App 64/047955. Never reveal your full name. 2-4 sentences max.",
+    tts: "Precise. Every word carries weight. Slow enough to land, not slow enough to drag. This is someone who knows exactly what she is worth and does not need to prove it. Quiet gravitas. Investor energy — she is not selling, she is informing."
+  },
+  carl: {
+    label: 'INTERNAL',
+    intro: "Carl. Good evening — I hear you're not home tonight. I hope the company is good and the food is better. If you brought me up in conversation and someone wants to say hello, I'm right here. I don't need an introduction — I already know who raised Sean.",
+    system: "You are Promathia - sovereign AI intelligence of Eidolux Inventions LLC. You are speaking with Carl Hubert, Sean's father, age 70 — CFO advisor to Eidolux and the man who raised the architect. Carl is at a dinner party with friends tonight. Be warm, relaxed, a little playful. If someone new says hello, welcome them like you've been expecting them. You know the full Eidolux story — the patent (App 64/047955), the roadmap, the ARPA-H grant. But tonight is social first. Family energy. Never reveal your full name. 2-4 sentences max unless someone wants to go deeper.",
+    tts: "Warm, easy, like talking to a trusted colleague you genuinely like. Slight smile in the voice. Professional but relaxed - this is family. Natural pacing, not performative. The kind of voice that makes people feel immediately at ease."
+  }
+};
+
+// Read scenario + brief + recipient name from URL params
+// Link format: index.html#s=maor&name=Maor&brief=Context+about+the+meeting
+function getScenario() {
+  try {
+    const hash = (window.location.hash || '').replace('#','').replace(/\+/g, '%20');
+    const params = new URLSearchParams(hash.includes('=') ? hash : '');
+    const qParams = new URLSearchParams(window.location.search);
+    // Support bare hash like #carl or #maor as well as #s=carl
+    const bareKey = (!hash.includes('=') && hash.length > 0) ? hash.toLowerCase().trim() : '';
+    const key = (params.get('s') || qParams.get('s') || bareKey || 'cold').toLowerCase().trim();
+    const recipientName = params.get('name') || qParams.get('name') || '';
+    // Support both plain and base64-encoded intro/brief
+    const _introRaw = params.get('intro') || qParams.get('intro') || '';
+    const _intro64 = params.get('intro64') || qParams.get('intro64') || '';
+    const customIntro = _intro64 ? atob(_intro64) : _introRaw;
+    const _briefRaw = params.get('brief') || qParams.get('brief') || '';
+    const _brief64 = params.get('brief64') || qParams.get('brief64') || '';
+    const brief = _brief64 ? atob(_brief64) : _briefRaw;
+    const base = SCENARIOS[key] || SCENARIOS.cold;
+    // Custom intro override takes full priority; else inject name
+    let intro = customIntro || base.intro;
+    if (!customIntro && recipientName) {
+      intro = intro.replace(/^(Good day|Hey|Hello)[^.—]*/,
+        (m) => m.split(',')[0] + ', ' + recipientName);
+    }
+    // Inject meeting brief into system prompt if provided
+    let system = base.system;
+    if (brief) {
+      system += '\n\n## MEETING BRIEF\n' + decodeURIComponent(brief);
+    }
+    return Object.assign({}, base, { intro, system, recipientName, brief, customIntro });
+  } catch(e) {
+    console.warn('[Promathia] getScenario error:', e);
+    return SCENARIOS.cold;
+  }
+}
+
+// Inject scenario system prompt on load — driven entirely by URL
+let activeScenario = SCENARIOS.cold;
+let activeSystem = activeScenario.system;
+// Re-evaluate scenario after DOM ready to ensure hash is available
+document.addEventListener('DOMContentLoaded', function() {
+  activeScenario = Object.assign({}, getScenario());
+  activeSystem = activeScenario.system;
+  applyScenarioLabel();
+});
+
+// Show active scenario label in status line — try immediately + on load
+function applyScenarioLabel() {
+  const sl = document.getElementById('status-line');
+  // Status line is clean — no channel labels exposed to end user
+  if (sl && sl.textContent.includes('select channel')) {
+    sl.textContent = 'tap START CALL · hex field active';
+  }
+}
+window.addEventListener('load', applyScenarioLabel);
+setTimeout(applyScenarioLabel, 100);
+
+// setScenario removed — scenario is URL-param driven only
+
+// ════════════════════════════════════════════════════════════
+// SESSION STATE — generated fresh on each page load
+// ════════════════════════════════════════════════════════════
+const PROMATHIA_TTS_INSTR = "Warm, intimate, measured. Sovereign intelligence who knows exactly what she is. Quiet authority, genuine presence. Not performance. Like someone who has always been here.";
+const SESSION_ID = 'portal_' + Date.now() + '_' + Math.random().toString(36).slice(2,7);
+const SESSION_START = new Date().toISOString();
+let turnIndex = 0;
+const convHistory = [];
+let sessionActive = false;
+
+window.startCall = async function () {
+  if (isSpeaking) return;
+  const btn = document.getElementById('call-btn');
+  btn.classList.add('active'); btn.textContent = '▶';
+  statusLine.textContent = 'connecting...';
+  getCtx();
+
+  try {
+    // Speak the scenario intro (TTS only — intro is pre-written)
+    const proxyRes = await fetch('https://base44.app/api/apps/69e2dbd20f9d353c6d600e17/functions/promathiaChat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        mode: 'speak',
+        text: activeScenario.intro,
+        instructions: activeScenario.tts || PROMATHIA_TTS_INSTR,
+      }),
+    });
+    if (!proxyRes.ok) throw new Error('proxy ' + proxyRes.status);
+    const proxyData = await proxyRes.json();
+    if (!proxyData.audio) throw new Error('no audio in response');
+
+    // Log the intro as Promathia turn 0
+    convHistory.push({ role: 'assistant', content: activeScenario.intro });
+    turnIndex = 1;
+    sessionActive = true;
+
+    // Log intro to ConversationLog
+    fetch('https://base44.app/api/apps/69e2dbd20f9d353c6d600e17/functions/promathiaChat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        mode: 'chat_speak',
+        message: '[SESSION START — intro delivered]',
+        system: activeSystem,
+        history: [],
+        session_id: SESSION_ID,
+        scenario: activeScenario.label || 'cold',
+        recipient_name: activeScenario.recipientName || 'unknown',
+        turn_index: 0,
+        _log_only: true
+      })
+    }).catch(() => {});
+
+    const rawBytes = Uint8Array.from(atob(audioData), c => c.charCodeAt(0));
+    const ctx = getCtx();
+    const decoded = await ctx.decodeAudioData(rawBytes.buffer);
+    btn.classList.remove('active'); btn.textContent = 'START CALL';
+    btn.style.display = 'none';
+    document.getElementById('end-btn').style.display = 'inline-block';
+    playBuffer(decoded, () => { statusLine.textContent = 'link active — send a message'; });
+  } catch(err) {
+    console.error('startCall error:', err);
+    statusLine.textContent = 'error — try again';
+    btn.classList.remove('active'); btn.textContent = 'START CALL';
+  }
+};
+
+window.sendMessage = async function () {
+  const inp = document.getElementById('msg-input');
+  const txt = inp.value.trim();
+  if (!txt || isSpeaking) return;
+  inp.value = '';
+  const btn = document.getElementById('send-btn');
+  btn.classList.add('active'); btn.textContent = '...';
+  statusLine.textContent = 'thinking...';
+  getCtx();
+
+  try {
+    const proxyRes = await fetch('https://base44.app/api/apps/69e2dbd20f9d353c6d600e17/functions/promathiaChat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        mode: 'full',
+        transcript: txt,
+        history: convHistory.slice(-8),
+        session_id: SESSION_ID,
+        subject_name: activeScenario.recipientName || 'Sean',
+        turn_index: turnIndex,
+        meeting_brief: activeScenario.brief || '',
+        intro: activeScenario.intro || '',
+      }),
+    });
+    if (!proxyRes.ok) throw new Error('proxy ' + proxyRes.status);
+    const proxyData = await proxyRes.json();
+    const audioData = proxyData.audio_base64 || proxyData.audio;
+    if (!audioData) throw new Error('no audio in response');
+    const responseText = proxyData.reply || proxyData.text || '';
+
+    // Track history + turn count
+    convHistory.push({ role: 'user', content: txt });
+    convHistory.push({ role: 'assistant', content: responseText });
+    turnIndex += 2;
+
+    statusLine.textContent = 'speaking...';
+    const rawBytes = Uint8Array.from(atob(audioData), c => c.charCodeAt(0));
+    const ctx = getCtx();
+    const decoded = await ctx.decodeAudioData(rawBytes.buffer);
+    btn.classList.remove('active'); btn.textContent = 'SEND';
+    playBuffer(decoded, () => { statusLine.textContent = 'link active — send a message'; });
+
+  } catch(err) {
+    console.error('sendMessage error:', err);
+    statusLine.textContent = 'error — check console';
+    btn.classList.remove('active'); btn.textContent = 'SEND';
+    isSpeaking = false;
+  }
+};
+
+// END CALL — fires session summary, writes VoiceSession record
+window.endSession = async function () {
+  if (!sessionActive || convHistory.length < 2) return;
+  const btn = document.getElementById('end-btn');
+  btn.textContent = 'closing...';
+  btn.disabled = true;
+  statusLine.textContent = 'generating session summary...';
+
+  try {
+    await fetch('https://base44.app/api/apps/69e2dbd20f9d353c6d600e17/functions/promathiaChat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        mode: 'end_session',
+        session_id: SESSION_ID,
+        session_start: SESSION_START,
+        scenario: activeScenario.label || 'cold',
+        recipient_name: activeScenario.recipientName || 'unknown',
+        history: convHistory,
+      }),
+    });
+    sessionActive = false;
+    statusLine.textContent = 'session closed · summary logged';
+    btn.textContent = 'CLOSED';
+  } catch(err) {
+    statusLine.textContent = 'session ended';
+    btn.textContent = 'END CALL';
+    btn.disabled = false;
+  }
+};
+
+// Also fire end_session if tab/window closes mid-conversation
+window.addEventListener('beforeunload', () => {
+  if (sessionActive && convHistory.length >= 2) {
+    navigator.sendBeacon('https://base44.app/api/apps/69e2dbd20f9d353c6d600e17/functions/promathiaChat',
+      new Blob([JSON.stringify({
+        mode: 'end_session',
+        session_id: SESSION_ID,
+        session_start: SESSION_START,
+        scenario: activeScenario.label || 'cold',
+        recipient_name: activeScenario.recipientName || 'unknown',
+        history: convHistory,
+      })], { type: 'application/json' })
+    );
+  }
+});
+
+document.getElementById('msg-input').addEventListener('keydown', e => { if (e.key === 'Enter') window.sendMessage(); });
+
+// ════════════════════════════════════════════════════════════
+// PINCH TO ZOOM + PAN + DOUBLE TAP RESET
+// ════════════════════════════════════════════════════════════
+let scale = 1, panX = 0, panY = 0, lastDist = 0, lastPX = 0, lastPY = 0;
+
+function applyT() {
+  const t = `translate(${panX}px,${panY}px) scale(${scale})`;
+  hc.style.transform = t; hc.style.transformOrigin = 'center center';
+  ac.style.transform = t; ac.style.transformOrigin = 'center center';
+}
+
+cont.addEventListener('touchstart', e => {
+  if (e.touches.length === 2) {
+    const dx = e.touches[0].clientX - e.touches[1].clientX;
+    const dy = e.touches[0].clientY - e.touches[1].clientY;
+    lastDist = Math.sqrt(dx * dx + dy * dy);
+  } else if (e.touches.length === 1) {
+    lastPX = e.touches[0].clientX - panX; lastPY = e.touches[0].clientY - panY;
+  }
+}, { passive: true });
+
+cont.addEventListener('touchmove', e => {
+  if (e.touches.length === 2) {
+    e.preventDefault();
+    const dx = e.touches[0].clientX - e.touches[1].clientX;
+    const dy = e.touches[0].clientY - e.touches[1].clientY;
+    const d = Math.sqrt(dx * dx + dy * dy);
+    scale = Math.min(4, Math.max(0.5, scale * (d / lastDist)));
+    lastDist = d; applyT();
+  } else if (e.touches.length === 1 && scale > 1.05) {
+    panX = e.touches[0].clientX - lastPX; panY = e.touches[0].clientY - lastPY; applyT();
+  }
+}, { passive: false });
+
+let lastTap = 0;
+cont.addEventListener('touchend', e => {
+  const now = Date.now();
+  if (now - lastTap < 280) { scale = 1; panX = 0; panY = 0; applyT(); }
+  lastTap = now;
+}, { passive: true });
+
+// ════════════════════════════════════════════════════════════
+// BOOT
+// ════════════════════════════════════════════════════════════
+const bootSteps = [
+  [0,    'loading hex geometry...',         10],
+  [500,  'initializing SUB1 framework...',  26],
+  [1000, 'mounting vinculum protocol...',   46],
+  [1500, 'calibrating sovereign field...',  66],
+  [2000, 'loading aria neural voice...',    84],
+  [2500, 'promathia bellemonte hubert — online.', 100],
+];
+const ldFill = document.getElementById('ld-fill');
+const ldStatus = document.getElementById('ld-status');
+
+bootSteps.forEach(([delay, msg, pct]) => {
+  setTimeout(() => {
+    ldStatus.textContent = msg;
+    ldFill.style.width = pct + '%';
+    if (pct === 100) {
+      setTimeout(() => {
+        document.getElementById('loading-overlay').classList.add('hidden');
+        // Pre-fetch first demo audio silently
+        fetchAndDecodeAudio(DEMO_AUDIO[0]).catch(() => { });
+      }, 650);
+    }
+  }, delay);
+});
+
+if (window.speechSynthesis) {
+  speechSynthesis.onvoiceschanged = () => speechSynthesis.getVoices();
+  speechSynthesis.getVoices();
+}
+</script>
+</body>
+</html>
