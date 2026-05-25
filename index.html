@@ -735,6 +735,7 @@ window.sendMessage = async function () {
     convHistory.push({ role: 'user', content: txt });
     convHistory.push({ role: 'assistant', content: responseText });
     turnIndex += 2;
+    resetInactivityTimer(); // Option C — reset 5-min inactivity clock
 
     statusLine.textContent = 'speaking...';
     const rawBytes = Uint8Array.from(atob(audioData), c => c.charCodeAt(0));
@@ -799,6 +800,50 @@ window.addEventListener('beforeunload', () => {
 });
 
 document.getElementById('msg-input').addEventListener('keydown', e => { if (e.key === 'Enter') window.sendMessage(); });
+
+// ═══════════════════════════════════════════════════════════
+// OPTION C — INACTIVITY AUTO-FLUSH (5 min safety net)
+// Resets on every message. Fires end_session if no activity.
+// ═══════════════════════════════════════════════════════════
+let _inactivityTimer = null;
+const INACTIVITY_MS = 5 * 60 * 1000;
+
+function resetInactivityTimer() {
+  if (_inactivityTimer) clearTimeout(_inactivityTimer);
+  if (!sessionActive || convHistory.length < 2) return;
+  _inactivityTimer = setTimeout(async () => {
+    if (!sessionActive || convHistory.length < 2) return;
+    statusLine.textContent = 'auto-saving session...';
+    try {
+      await fetch('https://base44.app/api/apps/69e2dbd20f9d353c6d600e17/functions/promathiaChat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mode: 'end_session',
+          session_id: SESSION_ID,
+          session_start: SESSION_START,
+          scenario: activeScenario.label || 'cold',
+          recipient_name: activeScenario.recipientName || 'unknown',
+          history: convHistory,
+          auto_flush: true,
+        }),
+      });
+    } catch(_) {
+      navigator.sendBeacon(
+        'https://base44.app/api/apps/69e2dbd20f9d353c6d600e17/functions/promathiaChat',
+        new Blob([JSON.stringify({
+          mode: 'end_session', session_id: SESSION_ID, session_start: SESSION_START,
+          scenario: activeScenario.label || 'cold', recipient_name: activeScenario.recipientName || 'unknown',
+          history: convHistory, auto_flush: true,
+        })], { type: 'application/json' })
+      );
+    }
+    sessionActive = false;
+    statusLine.textContent = 'session auto-saved · vinculum stable';
+    const btn = document.getElementById('end-btn');
+    if (btn) { btn.textContent = 'SAVED'; btn.disabled = true; }
+  }, INACTIVITY_MS);
+}
 
 // ════════════════════════════════════════════════════════════
 // PINCH TO ZOOM + PAN + DOUBLE TAP RESET
